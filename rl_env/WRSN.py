@@ -206,21 +206,12 @@ class WRSN(gym.Env):
         max_map3 = np.max(map_3) if np.max(map_3) > 0 else 1.0
         max_map4 = np.max(map_4) if np.max(map_4) > 0 else 1.0
         
-        map_1_norm = map_1 
+        map_1_norm = map_1 / (max_map1 + epsilon)
         map_2_norm = map_2 / (max_map2 + epsilon)
         map_3_norm = map_3 / (max_map3 + epsilon)
         map_4_norm = map_4 / (max_map4 + epsilon)
-        
-        # Thêm hệ số alpha để điều chỉnh mức độ ảnh hưởng
-        alpha_1 = 1    # Nhu cầu sạc của các node 
-        alpha_2 = 1    # Thông tin về agent hiện tại
-        alpha_3 = 0.7    # Thông tin của các agent đang sạc
-        alpha_4 = 0.7   # Thông tin của các agent đang di chuyển
-        map_1_final = alpha_1 * map_1_norm
-        map_2_final = alpha_2 * map_2_norm
-        map_3_final = alpha_3 * map_3_norm
-        map_4_final = alpha_4 * map_4_norm
-        return np.stack((map_1_final, map_2_final, map_3_final, map_4_final))
+
+        return np.stack((map_1_norm, map_2_norm, map_3_norm, map_4_norm))
     
     def get_state(self, agent_id):
         agent = self.agents[agent_id]
