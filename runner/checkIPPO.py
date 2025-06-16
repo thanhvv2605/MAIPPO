@@ -6,7 +6,6 @@ import matplotlib.pyplot as plt
 import pandas as pd
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from rl_env.WRSN import WRSN
-from utils import draw_heatmap_state
 from controller.ippo.IPPO import IPPO
 import yaml
 import torch

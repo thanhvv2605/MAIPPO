@@ -13,7 +13,7 @@ def log(net, mcs):
         print(net.env.now, net.listNodes[0].energy)
         yield net.env.timeout(1.0)
 
-netIO = NetworkIO("physical_env/network/network_scenarios/hanoi1000n50.yaml")
+netIO = NetworkIO("physical_env/network/network_scenarios/hanoi_50.yaml")
 env, net = netIO.makeNetwork()
 
 with open("physical_env/mc/mc_types/default.yaml", 'r') as file:
