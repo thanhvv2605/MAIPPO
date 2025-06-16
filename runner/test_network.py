@@ -10,7 +10,7 @@ def log(net, mcs):
         print(net.env.now, net.check_nodes())
         yield net.env.timeout(1.0)
 
-netIO = NetworkIO("physical_env/network/network_scenarios/_40targets_52sensors.yaml")
+netIO = NetworkIO("physical_env/network/network_scenarios/hanoi_50.yaml")
 env, net = netIO.makeNetwork()
 x = env.process(net.operate())
 env.process(log(net, None))
