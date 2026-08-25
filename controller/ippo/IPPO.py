@@ -27,7 +27,7 @@ from torch.multiprocessing import Manager
 def create_environment():
         return WRSN(scenario_path="physical_env/network/network_scenarios/50_target_train.yaml",
                    agent_type_path="physical_env/mc/mc_types/default.yaml",
-                   num_agent=3, map_size=100, density_map=True)
+                   num_agent=1, map_size=100, density_map=True)
 
 class IPPO:
     def __init__(self, args, env, device, model_path=None):

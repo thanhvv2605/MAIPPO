@@ -31,7 +31,7 @@ for map in list_map:
 
     network = WRSN(scenario_path=scenario_path
                 ,agent_type_path="physical_env/mc/mc_types/default.yaml"
-                ,num_agent=3, map_size=100,density_map=True)
+                ,num_agent=1, map_size=100,density_map=True)
 
 
 
