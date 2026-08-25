@@ -1,5 +1,8 @@
 import sys
 import os
+# Giới hạn mỗi process 1 thread BLAS — 8 worker × 1 thread thay vì × N thread (tranh chấp trên 20 cores)
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
 import torch
 import random
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
