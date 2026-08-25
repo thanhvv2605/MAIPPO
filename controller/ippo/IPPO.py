@@ -34,6 +34,7 @@ class IPPO:
         self.num_agent = env.num_agent
         self.model_path = model_path
         self.device = device
+        self.lr = args["lr"]
         self.gamma = args["gamma"]
         self.clip = args["clip"]
         self.batch_size = args["batch_size"]
@@ -151,31 +152,43 @@ class IPPO:
         
         # Đường dẫn đến checkpoint gần nhất
         last_checkpoint_path = os.path.join(checkpoint_dir, 'last_checkpoint.pt')
-        
+        # Đường dẫn đến checkpoint tốt nhất (theo avg episodic lifetime)
+        best_checkpoint_path = os.path.join(checkpoint_dir, 'best_checkpoint.pt')
+
         # Biến để kiểm soát việc tiếp tục từ checkpoint
         start_iteration = 0
         t_so_far = 0
         logs = [[] for _ in range(self.num_agent)]
+
+        # Theo dõi lifetime tốt nhất cho best_checkpoint
+        best_lifetime = -np.inf
+        best_iteration = -1
         
         # Kiểm tra xem có checkpoint gần nhất không và nạp nó
         if os.path.exists(last_checkpoint_path):
             try:
                 print(f"Tìm thấy checkpoint gần nhất tại {last_checkpoint_path}. Đang nạp...")
-                checkpoint = torch.load(last_checkpoint_path)
+                checkpoint = torch.load(last_checkpoint_path, weights_only=False)
                 
                 # Nạp trạng thái mô hình và quá trình huấn luyện
                 for id in range(self.num_agent):
                     self.actors[id].load_state_dict(checkpoint['actor_state_dicts'][id])
                     self.critics[id].load_state_dict(checkpoint['critic_state_dicts'][id])
                     self.optimizers[id].load_state_dict(checkpoint['optimizer_state_dicts'][id])
+                    # Optimizer state trong checkpoint chứa lr cũ — áp lại lr hiện tại từ config
+                    for param_group in self.optimizers[id].param_groups:
+                        param_group['lr'] = self.lr
                     self.loggers[id] = checkpoint['loggers'][id]
                 
                 # Nạp các biến theo dõi tiến trình
                 start_iteration = checkpoint['iteration']
                 t_so_far = checkpoint['t_so_far']
                 logs = checkpoint['logs']
+                # Nạp lại trạng thái best checkpoint nếu có
+                best_lifetime = checkpoint.get('best_lifetime', -np.inf)
+                best_iteration = checkpoint.get('best_iteration', -1)
                 
-                print(f"Nạp thành công, tiếp tục huấn luyện từ vòng lặp {start_iteration}")
+                print(f"Nạp thành công, tiếp tục huấn luyện từ vòng lặp {start_iteration} (lr={self.lr}, clip={self.clip}, n_updates={self.n_updates_per_iteration})")
             except Exception as e:
                 print(f"Lỗi khi nạp checkpoint: {e}")
                 print("Khởi động lại từ đầu...")
@@ -197,17 +210,19 @@ class IPPO:
             actor_state_dicts = [self.actors[id].state_dict() for id in range(self.num_agent)]
             critic_state_dicts = [self.critics[id].state_dict() for id in range(self.num_agent)]
             optimizer_state_dicts = [self.optimizers[id].state_dict() for id in range(self.num_agent)]
-            
+
             checkpoint = {
-                'iteration': i_so_far,  
+                'iteration': i_so_far,
                 't_so_far': t_so_far,
                 'actor_state_dicts': actor_state_dicts,
                 'critic_state_dicts': critic_state_dicts,
                 'optimizer_state_dicts': optimizer_state_dicts,
                 'loggers': self.loggers.copy() if isinstance(self.loggers, dict) else [logger.copy() for logger in self.loggers],
-                'logs': logs
+                'logs': logs,
+                'best_lifetime': best_lifetime,
+                'best_iteration': best_iteration
             }
-            
+
             # Lưu vào file tạm trước, sau đó đổi tên để tránh ghi đè không hoàn chỉnh
             temp_checkpoint_path = os.path.join(checkpoint_dir, 'temp_checkpoint.pt')
             torch.save(checkpoint, temp_checkpoint_path)
@@ -216,6 +231,26 @@ class IPPO:
                 print(f"Đã lưu checkpoint tại vòng lặp {i_so_far}")
             else:
                 print(f"Lỗi: Không thể tạo file checkpoint tạm thời")
+
+        # Hàm lưu best checkpoint khi lifetime cao hơn kỷ lục
+        def save_best_checkpoint(avg_lifetime):
+            nonlocal best_lifetime, best_iteration
+            if avg_lifetime > best_lifetime:
+                best_lifetime = avg_lifetime
+                best_iteration = i_so_far
+                checkpoint = {
+                    'iteration': i_so_far,
+                    't_so_far': t_so_far,
+                    'actor_state_dicts': [self.actors[id].state_dict() for id in range(self.num_agent)],
+                    'critic_state_dicts': [self.critics[id].state_dict() for id in range(self.num_agent)],
+                    'optimizer_state_dicts': [self.optimizers[id].state_dict() for id in range(self.num_agent)],
+                    'best_lifetime': best_lifetime,
+                    'best_iteration': best_iteration
+                }
+                temp_path = os.path.join(checkpoint_dir, 'temp_best_checkpoint.pt')
+                torch.save(checkpoint, temp_path)
+                os.replace(temp_path, best_checkpoint_path)
+                print(f"🏆 BEST checkpoint mới: lifetime {best_lifetime:.2f}s tại vòng lặp {best_iteration}")
         
         # Thiết lập bắt tín hiệu ngắt (Ctrl+C, kill, etc.) - KHÔNG lưu checkpoint khi bị ngắt
         import signal, sys
@@ -322,7 +357,11 @@ class IPPO:
                     writers[id].add_scalar("charts/SPS", int(i_so_far) / (time.time() - start_time), i_so_far)
                         
                     # Tóm tắt quá trình huấn luyện
-                    logs[id].append(self._log_summary(id))
+                    row, avg_lifetime = self._log_summary(id, return_lifetime=True)
+                    logs[id].append(row)
+
+                    # Cập nhật best checkpoint theo lifetime của agent này
+                    save_best_checkpoint(avg_lifetime)
 
                     # Lưu mô hình theo lịch trình đã định
                     if self.loggers[id]['i_so_far'] % self.save_freq == 0:
@@ -366,7 +405,7 @@ class IPPO:
   
 
     
-    def _log_summary(self, id):
+    def _log_summary(self, id, return_lifetime=False):
         t_so_far = self.loggers[id]['t_so_far']
         i_so_far = self.loggers[id]['i_so_far']
         avg_ep_lens = np.mean(self.loggers[id]['ep_lens'])
@@ -402,8 +441,10 @@ class IPPO:
 
         # Reset batch-specific logging data
         self.loggers[id]['ep_lens'] = []
-        self.loggers[id]['ep_lifetime'] = []  
+        self.loggers[id]['ep_lifetime'] = []
         self.loggers[id]['losses'] = []
+        if return_lifetime:
+            return [i_so_far, t_so_far, avg_ep_lens, avg_ep_lifetime, avg_loss, avg_rew, delta_t], float(avg_ep_lifetime)
         return [i_so_far, t_so_far, avg_ep_lens, avg_ep_lifetime, avg_loss, avg_rew, delta_t]
 
 
